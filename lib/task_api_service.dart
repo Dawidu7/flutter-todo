@@ -18,10 +18,10 @@ class TaskApiService {
 
       return todos.map((todo) {
         final priority = priorities[random.nextInt(priorities.length)];
-
         final deadlineDays = random.nextInt(14) + 1;
 
         return Task(
+          id: todo["id"],
           title: todo["todo"],
           deadline: "za $deadlineDays dni",
           done: todo["completed"],

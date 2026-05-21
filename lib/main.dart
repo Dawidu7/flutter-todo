@@ -1,10 +1,16 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
+import 'package:hive_ce_flutter/hive_flutter.dart';
+
 import 'task_repository.dart';
-import 'task_api_service.dart';
 
 const title = "Todo";
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Hive.initFlutter();
+  await Hive.openBox("tasks");
   runApp(const App());
 }
 
@@ -34,11 +40,33 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   String selectedFilter = "wszystkie";
   late Future<List<Task>> tasksFuture;
+  int allTasksCount = 0;
+  int doneTasksCount = 0;
+  int todoTasksCount = 0;
 
   @override
   void initState() {
     super.initState();
-    tasksFuture = TaskApiService.fetchTasks();
+    tasksFuture = loadTasks();
+  }
+
+  Future<List<Task>> loadTasks() async {
+    await TaskSyncService.loadInitialDataIfNeeded();
+    final tasks = TaskLocalDatabase.getTasks();
+    updateCounters(tasks);
+    return tasks;
+  }
+
+  void updateCounters(List<Task> tasks) {
+    allTasksCount = tasks.length;
+    doneTasksCount = tasks.where((task) => task.done).length;
+    todoTasksCount = tasks.where((task) => !task.done).length;
+  }
+
+  void refreshTasks() {
+    setState(() {
+      tasksFuture = loadTasks();
+    });
   }
 
   void _clearAllTasks() {
@@ -53,10 +81,9 @@ class _HomePageState extends State<HomePage> {
             child: const Text("Anuluj"),
           ),
           TextButton(
-            onPressed: () {
-              setState(() {
-                tasksFuture = Future.value([]);
-              });
+            onPressed: () async {
+              await TaskLocalDatabase.deleteAllTasks();
+              refreshTasks();
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text("Wyczyszczono listę zadań")),
@@ -93,9 +120,18 @@ class _HomePageState extends State<HomePage> {
               onFilterChanged: (filter) =>
                   setState(() => selectedFilter = filter),
             ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                Text("Wszystkie: $allTasksCount"),
+                Text("Do zrobienia: $todoTasksCount"),
+                Text("Wykonane: $doneTasksCount"),
+              ],
+            ),
             const SizedBox(height: 20),
             const Text(
-              "Zadania z serwera API",
+              "Zadania z lokalnej bazy Hive",
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 10),
@@ -135,7 +171,7 @@ class _HomePageState extends State<HomePage> {
                     itemBuilder: (ctx, index) {
                       final task = filteredTasks[index];
                       return Dismissible(
-                        key: ValueKey(task.title + index.toString()),
+                        key: ValueKey(task.id),
                         direction: DismissDirection.endToStart,
                         background: Container(
                           color: Colors.red,
@@ -143,15 +179,26 @@ class _HomePageState extends State<HomePage> {
                           padding: const EdgeInsets.symmetric(horizontal: 20),
                           child: const Icon(Icons.delete, color: Colors.white),
                         ),
-                        onDismissed: (direction) {
-                          allTasks.remove(task);
+                        onDismissed: (direction) async {
+                          await TaskLocalDatabase.deleteTask(task.id);
+                          refreshTasks();
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(content: Text("Usunięto: ${task.title}")),
                           );
                         },
                         child: TaskCard(
                           task: task,
-                          onChanged: (val) => setState(() => task.done = val!),
+                          onChanged: (val) async {
+                            final updatedTask = Task(
+                              id: task.id,
+                              title: task.title,
+                              deadline: task.deadline,
+                              priority: task.priority,
+                              done: val ?? false,
+                            );
+                            await TaskLocalDatabase.updateTask(updatedTask);
+                            refreshTasks();
+                          },
                           onTap: () async {
                             final Task? updated = await Navigator.push(
                               context,
@@ -160,11 +207,8 @@ class _HomePageState extends State<HomePage> {
                               ),
                             );
                             if (updated != null) {
-                              setState(() {
-                                task.title = updated.title;
-                                task.deadline = updated.deadline;
-                                task.priority = updated.priority;
-                              });
+                              await TaskLocalDatabase.updateTask(updated);
+                              refreshTasks();
                             }
                           },
                         ),
@@ -184,9 +228,8 @@ class _HomePageState extends State<HomePage> {
             MaterialPageRoute(builder: (ctx) => const AddTaskScreen()),
           );
           if (newTask != null) {
-            setState(() {
-              tasksFuture.then((list) => list.add(newTask));
-            });
+            await TaskLocalDatabase.addTask(newTask);
+            refreshTasks();
           }
         },
         child: const Icon(Icons.add),
@@ -339,6 +382,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
             ElevatedButton(
               onPressed: () {
                 final newTask = Task(
+                  id: Random().nextInt(1000000),
                   title: titleController.text,
                   deadline: deadlineController.text,
                   priority: priorityController.text,
@@ -420,6 +464,7 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
             ElevatedButton(
               onPressed: () {
                 final updatedTask = Task(
+                  id: widget.task.id,
                   title: titleController.text,
                   deadline: deadlineController.text,
                   priority: priorityController.text,
