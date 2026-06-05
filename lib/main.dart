@@ -1,7 +1,10 @@
 import 'dart:math';
 
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
+import 'firebase_options.dart';
 
 import 'task_repository.dart';
 
@@ -11,6 +14,8 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
   await Hive.openBox("tasks");
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
   runApp(const App());
 }
 
@@ -103,6 +108,12 @@ class _HomePageState extends State<HomePage> {
         title: const Text(title),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
+          ElevatedButton(
+            onPressed: () {
+              FirebaseCrashlytics.instance.crash();
+            },
+            child: const Text("Test crash"),
+          ),
           IconButton(
             icon: const Icon(Icons.delete_sweep),
             onPressed: _clearAllTasks,

@@ -1,4 +1,5 @@
 import 'package:hive_ce/hive.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'task_api_service.dart';
 
 class Task {
@@ -81,7 +82,16 @@ class TaskSyncService {
       return;
     }
 
-    final tasks = await TaskApiService.fetchTasks();
-    await TaskLocalDatabase.saveTasks(tasks);
+    try {
+      final tasks = await TaskApiService.fetchTasks();
+      await TaskLocalDatabase.saveTasks(tasks);
+    } catch (error, stackTrace) {
+      await FirebaseCrashlytics.instance.recordError(
+        error,
+        stackTrace,
+        reason: 'Błąd podczas pobierania zadań z API',
+      );
+      rethrow;
+    }
   }
 }
